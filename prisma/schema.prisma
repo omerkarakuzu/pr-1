@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Not: SQL Server Prisma connector native enum desteklemez.
+//     Roller ve durumlar String olarak tutulur; TypeScript tarafında
+//     `lib/types/enums.ts` içindeki const nesneler ile tip güvenliği sağlanır.
+//
+// Role değerleri      : EMPLOYEE | MANAGER | DIRECTOR | GM_ASSISTANT | GM | BOARD_MEMBER
+// RequestStatus değer : PENDING | APPROVED | REJECTED | CANCELLED
+// ApprovalStatus değer: PENDING | APPROVED | REJECTED
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  id         String  @id @default(cuid())
+  name       String
+  email      String  @unique
+  password   String  // bcrypt hash
+  /// EMPLOYEE | MANAGER | DIRECTOR | GM_ASSISTANT | GM | BOARD_MEMBER
+  role       String
+  department String?
+
+  // Hiyerarşi (self-referential)
+  managerId String?
+  manager   User?   @relation("UserHierarchy", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reports   User[]  @relation("UserHierarchy")
+
+  // İlişkiler
+  purchaseRequests PurchaseRequest[] @relation("Requester")
+  approvals        Approval[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PurchaseRequest {
+  id          String  @id @default(cuid())
+  title       String
+  description String?
+  amount      Float
+  /// PENDING | APPROVED | REJECTED | CANCELLED
+  status      String  @default("PENDING")
+
+  requesterId String
+  requester   User   @relation("Requester", fields: [requesterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  approvals Approval[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Her onay adımı için bir kayıt.
+// 0-300 $    → step 1: ilk MANAGER veya DIRECTOR
+// 301-10000$ → step 1: ilk GM_ASSISTANT veya GM
+// 10000+ $   → step 1: BOARD_MEMBER
+model Approval {
+  id String @id @default(cuid())
+
+  requestId String
+  request   PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  approverId String
+  approver   User   @relation(fields: [approverId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// PENDING | APPROVED | REJECTED
+  status  String  @default("PENDING")
+  step    Int     @default(1)
+  comment String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
